@@ -96,6 +96,21 @@ ENDIF
        TSB &FE34        ;; Put shadow RAM in memory
 .L806D PLY              ;; Restore Y
        RTS
+       
+IF PATCH_IDFS
+;; LV-delay subroutine - 6 NOP does the trick, but use 8 for safety
+
+.lvdelay
+       NOP
+       NOP
+       NOP
+       NOP
+       NOP
+       NOP
+       NOP
+       NOP
+       RTS
+ENDIF  
 ;;
 ;;
 ;; DRIVE ACCESS ROUTINES
@@ -121,8 +136,15 @@ ELIF PATCH_IDE
        RTS
 ELSE
 .L806F PHP
-.L8070 LDA HDBASE+1     ;; Get SCSI status
+.L8070 
+IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// CRUCIAL FOR LV-ROM - Boot option jumbled otherwise
+       JSR lvdelay
+ENDIF
+       LDA HDBASE+1     ;; Get SCSI status
        STA &CC          ;; Save this value
+IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// CRUCIAL FOR LV-ROM - Boot option jumbled otherwise
+       JSR lvdelay
+ENDIF
        LDA HDBASE+1     ;; Get SCSI status
        CMP &CC          ;; Compare with previous status
        BNE L8070        ;; Loop until status stays same
@@ -175,7 +197,13 @@ ELSE
 IF PATCH_IDFS
        EOR #&FF         ;; Invert byte when using internal bus   NECESSARY - IN VFS
 ENDIF
+IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// CRUCIAL FOR LV-ROM - Boot option jumbled otherwise 
+       JSR lvdelay
+ENDIF
        STA HDBASE       ;; Write to SCSI data
+IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// CRUCIAL FOR LV-ROM - Boot option jumbled otherwise
+       JSR lvdelay
+ENDIF
        STA HDBASE+2     ;; Write to SCSI select to strobe it
 .L8091 JSR L806F        ;; Get SCSI status
        AND #&02         ;; BUSY?
@@ -497,7 +525,17 @@ ELSE
        LDA (&B0),Y      ;; Get Command
        AND #&FD         ;; Lose bit 1
        EOR #&08         ;; Is Command &08 or &0A?
+       
+;;IF PATCH_IDFS           ;; Bodge for branch out of range error
+;;       BEQ idfsbranchbodge
+;;       JMP idfsskipbranchbodge
+;;.idfsbranchbodge
+;;       JMP L81DB
+;;.idfsskipbranchbodge
+;;ELSE
        BEQ L81DB        ;; Jump if not Read or Write
+;;ENDIF
+
        JSR L8332        ;; Wait until SCSI busy
        CLC              ;; CC=Read
        BVC L816A        ;; Jump past with Read
@@ -522,15 +560,25 @@ ELSE
        BCS L818E        ;; Jump for I/O read
 ;;
 ;;                                         I/O write
+
        LDA (&B2),Y      ;; Get byte from memory
 IF PATCH_IDFS
        EOR #&FF         ;; Invert byte when using internal bus  *** NECESSARY - in VFS
 ENDIF
+;;IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// TESTING for error recovery (does not fix)
+;;       JSR lvdelay
+;;ENDIF
        STA HDBASE       ;; Write to SCSI data port
        BRA L8193        ;; Jump to update address
 ;;
-.L818E LDA HDBASE       ;; Read byte from SCSI data port
+.L818E
+;;IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// TESTING for error recovery (does not fix)
+;;       JSR lvdelay
+;;ENDIF
+       LDA HDBASE       ;; Read byte from SCSI data port
        STA (&B2),Y      ;; Store byte in memory
+
+
 .L8193 INY              ;; Point to next byte
        BNE L817C        ;; Loop for 256 bytes
        INC &B3          ;; Increment address high byte
@@ -541,15 +589,27 @@ ENDIF
 IF PATCH_IDFS
        EOR #&FF         ;; Invert byte when using internal bus  *** NECESSARY - in VFS
 ENDIF
+;;IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// TESTING for error recovery (does not fix)
+;;       JSR lvdelay
+;;ENDIF
+
        STA HDBASE       ;; Write byte to SCSI data port
        BRA L817C        ;; Loop for next byte
 ;;
-.L81A5 LDA HDBASE       ;; Get byte from SCSI data port
+.L81A5 
+;;IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// TESTING for error recovery (does not fix)
+;;       JSR lvdelay
+;;ENDIF
+       LDA HDBASE       ;; Get byte from SCSI data port
        STA &FEE5        ;; Write to Tube
        BRA L817C        ;; Loop for next byte
 ;;
 .L81AD JSR L803A        ;; Release Tube and restore screen
 .L81B0 JSR L8332        ;; Wait for SCSI data ready
+;;IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// TESTING for error recovery (does not fix)
+;;       JSR lvdelay
+;;ENDIF
+
        LDA HDBASE       ;; Get result byte
        JSR L8332        ;; Wait for SCSI data ready
        TAY              ;; Save result
@@ -557,6 +617,9 @@ ENDIF
        AND #&01
        BEQ L81B0        ;; Loop to try to get result again
        TYA              ;; Get result back
+;;IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// TESTING for error recovery (does not fix)
+;;       JSR lvdelay
+;;ENDIF
        LDX HDBASE       ;; Get second result byte
        BEQ L81CA        ;; OK, jump to return result
        JMP L82A5        ;; Return result=&7F
@@ -575,6 +638,8 @@ ELSE
        AND #&7F         ;; Lose bit 7
 ENDIF
        RTS              ;; Return with result in A
+
+
 ;;
 ;;
 ;; &CD ADFS status flag
@@ -601,13 +666,20 @@ ENDIF
 IF PATCH_IDFS
        EOR #&FF         ;; Invert byte when using internal bus                      **** NECESSARY - CONFIRMED IN VFS (L8193)***
 ENDIF
+;;IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// TESTING for error recovery (does not fix)
+;;       JSR lvdelay
+;;ENDIF
        STA HDBASE
        INY
        BNE L81E8
        INC &B3
        BRA L81E1
 ;;
-.L81F4 LDA HDBASE
+.L81F4 
+IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// CRUCIAL FOR LV ROM TO WORK (Broken dir jumble without)
+       JSR lvdelay
+ENDIF
+       LDA HDBASE
        STA (&B2),Y
        INY
        BNE L81F4
@@ -735,10 +807,16 @@ ELSE
 .L8233 NOP
        NOP
        NOP
+IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// CRUCIAL FOR LV-ROM - jumbles boot option otherwise
+       JSR lvdelay
+ENDIF
        LDA &FEE5
 IF PATCH_IDFS
        EOR #&FF         ;; Invert byte when using internal bus                    **** NECESSARY - IN VFS
 ENDIF
+;;IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// TESTING for error recovery (does not fix)
+;;       JSR lvdelay
+;;ENDIF
        STA HDBASE
        INY
        BNE L8233
@@ -752,6 +830,9 @@ ENDIF
 .L824B NOP
        NOP
        NOP
+IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// CRUCIAL FOR LV-ROM - jumbles boot option otherwise
+       JSR lvdelay
+ENDIF
        LDA HDBASE
        STA &FEE5
        INY
@@ -775,6 +856,9 @@ ENDIF
        DEY
        BPL L826F        ;; Send 4 zeros: sends &03 dd &00 &00 &00 &00
 .L8275 JSR L8332        ;; Wait for SCSI
+IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// CRUCIAL FOR LV-ROM - jumbles boot option otherwise
+       JSR lvdelay
+ENDIF
        LDA HDBASE       ;; Get byte from SCSI
 IF PATCH_IDFS
 ;;       EOR #&FF         ;; Invert byte when using internal bus                    **** NOT IN VFS (inverts disc errors and sector numbers)
@@ -788,8 +872,14 @@ ENDIF
        STA &C2D2
        JSR L8332        ;; Wait for SCSI
        LDX &C2D3        ;; Get returned error number
+IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// CRUCIAL FOR LV-ROM - jumbles boot option otherwise
+       JSR lvdelay
+ENDIF
        LDA HDBASE       ;; Get a byte from SCSI
        JSR L8332        ;; Wait for SCSI
+IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// CRUCIAL FOR LV-ROM - jumbles boot option otherwise
+       JSR lvdelay
+ENDIF
        LDY HDBASE       ;; Get another byte from SCSI
        BNE L82A5        ;; Second byte is non-zero, jump to return &7F
        AND #&02         ;; Test bit 1 of first byte
@@ -916,6 +1006,9 @@ IF NOT(PATCH_SD)        ;; Called only from Floppy and IDE code, not SD code
 IF PATCH_IDFS
        EOR #&FF         ;; Invert byte when using internal bus                                                *** NECESSARY - IN VFS
 ENDIF
+;;IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// TESTING for error recovery (does not fix)
+;;       JSR lvdelay
+;;ENDIF
        STA HDBASE       ;; This works because the SCSI command register is shared
        LDA #&00
        RTS
@@ -2107,7 +2200,11 @@ ELSE
 .L8B9B LDY #&00         ;; Fetch 256 bytes
        JSR L8332        ;; Wait for SCSI ready
        BMI L8BBB        ;; Jump ahead if switched to write
-.L8BA2 LDA HDBASE       ;; Get byte from SCSI
+.L8BA2 
+IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// CRUCIAL FOR LV-ROM - jumbles boot option otherwise
+       JSR lvdelay
+ENDIF
+       LDA HDBASE       ;; Get byte from SCSI
 IF PATCH_IDFS
 ;;       EOR #&FF         ;; Invert byte when using internal bus                    *** NOT IN VFS (Breaks >16K transfers)
 ENDIF
@@ -4166,11 +4263,16 @@ ELSE
 IF PATCH_IDFS
        EOR #&FF         ;; Invert byte when using internal bus  *** NECESSARY - BUT ::: confirmed in VFS  **AFTER** label in previous JSR instruction)
 ENDIF
- 
+;;IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// TESTING for error recovery (does not fix)
+;;       JSR lvdelay
+;;ENDIF
        STA HDBASE
 IF PATCH_IDFS
        EOR #&FF         ;; Invert byte when using internal bus (n.b. VFS re-inverts at this point)  *** NECESSARY - confirmed in VFS
 ENDIF
+;;IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// TESTING for error recovery (does not fix)
+;;       JSR lvdelay
+;;ENDIF
        STZ HDBASE+3
        CMP HDBASE
 .L9A7E RTS
@@ -4479,7 +4581,13 @@ ENDIF
 ;;
 .L9B94 LDA #&06
        JSR L9A4C        ;; Tell current FS new FS taking over
+       
+IF PATCH_IDFS
+       LDA #&1          ;; Set number of retries to 1 (VFS does no retries, so this doubles the time to report an LV-ROM error from 90s to 3 mins)
+ELSE
+
        LDA #&10
+ENDIF
        STA &C200
        STZ &C2D7
 IF PATCH_SD
@@ -4956,7 +5064,7 @@ IF PATCH_SD
 ELIF PATCH_IDE
        EQUS &0D, "Advanced DFS 1.53", &8D
 ELIF PATCH_IDFS
-       EQUS &0D, "Internal ADFS 1.50", &8D
+       EQUS &0D, "Internal ADFS 1.50 (&", STR$~(HDBASE), ")",&8D
 ELIF PATCH_XDFS
        EQUS &0D, "External ADFS 1.50", &8D
 ELSE
@@ -6741,6 +6849,9 @@ ELSE
 IF PATCH_IDFS
        EOR #&FF         ;; Invert byte when using internal bus    **** NOT IN VFS BUT REQUIRED FOR IDFS OTHERWISE BPUT BYTES INVERTED ****
 ENDIF
+;;IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// TESTING for error recovery (does not fix)
+;;       JSR lvdelay
+;;ENDIF
        STA HDBASE       ;; Send to SCSI
        INY
        BNE LAB76        ;; Loop for 256 bytes
@@ -6752,6 +6863,10 @@ IF PATCH_IDE OR PATCH_SD
        NOP              ;; Don't trample on IDE register
        NOP
        NOP
+;;ELIF PATCH_IDFS         ;; Introduce delay to allow LV-ROM Player to keep up /// TESTING for error recovery
+;;       JSR lvdelay
+;;       STY HDBASE+3     ;; Set HDBASE+3 to &FF
+      
 ELSE
        STY HDBASE+3     ;; Set HDBASE+3 to &FF
 ENDIF
@@ -6792,9 +6907,18 @@ IF NOT(PATCH_SD)
 ;;
 .LAB9B PHY              ;; Send something to SCSI
        LDA #&00
+;;IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// TESTING for error recovery
+;;       JSR lvdelay
+;;ENDIF
+
        STA HDBASE+3
        LDA #&01
        TRB &CD
+
+;;IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// TESTING for error recovery (does not fix)
+;;       JSR lvdelay
+;;ENDIF
+
        LDA HDBASE
        JSR L8332
        ORA HDBASE
@@ -6967,7 +7091,11 @@ IF PATCH_SD
        STA &B2
        ;; TODO Add error handling
 ELSE
-.LACCD LDA HDBASE       ;; Get byte from SCSI
+.LACCD 
+IF PATCH_IDFS           ;; Introduce delay to allow LV-ROM Player to keep up /// CRUCIAL FOR LV-ROM or BGET/DUMP broken
+       JSR lvdelay
+ENDIF
+       LDA HDBASE       ;; Get byte from SCSI
        STA (&BE),Y      ;; Store to buffer
        INY
        BNE LACCD        ;; Loop for 256 bytes
@@ -7003,6 +7131,7 @@ ENDIF
        BPL LAD0C
        LDX #&10
 .LAD0C RTS
+
 ;;
 ;; Check channel and get channel flags
 ;; -----------------------------------
@@ -9383,4 +9512,4 @@ ENDIF
 
 PRINT "    code ends at",~P%," (",(&C000 - P%), "bytes free )"
 
-SAVE "", &8000, &C000
+SAVE &8000, &C000
